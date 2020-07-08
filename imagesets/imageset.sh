@@ -347,6 +347,8 @@ function google_update {
         sleep 15
     done
 
+    echo "${GCP_PROJECT}/global/images/${UNIQUE_NAME}" > gcp_image
+
     google_delete_found
 }
 

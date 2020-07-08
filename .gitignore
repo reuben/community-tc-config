@@ -107,3 +107,4 @@ venv.bak/
 *.id_rsa
 *.latest-image
 *.secrets
+gcp_image

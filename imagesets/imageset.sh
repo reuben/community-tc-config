@@ -57,9 +57,9 @@ function deploy {
             log "Fetching secrets..."
             pass git pull
             for REGION in us-west-1 us-west-2 us-east-1; do
-              IMAGE_ID="$(cat "${IMAGE_SET}/${REGION}.secrets" | sed -n 's/^AMI: *//p')"
+              IMAGE_ID="$(cat "${IMAGE_SET}/aws.${REGION}.secrets" | sed -n 's/^AMI: *//p')"
               yq w -i ../config/imagesets.yml "${IMAGE_SET}.aws.amis.${REGION}" "${IMAGE_ID}"
-              pass insert -m -f "community-tc/imagesets/${IMAGE_SET}/${REGION}" < "${IMAGE_SET}/${REGION}.secrets"
+              pass insert -m -f "community-tc/imagesets/${IMAGE_SET}/${REGION}" < "${IMAGE_SET}/aws.${REGION}.secrets"
               pass insert -m -f "community-tc/imagesets/${IMAGE_SET}/${CLOUD}.${REGION}.id_rsa" < "${IMAGE_SET}/${CLOUD}.${REGION}.id_rsa"
             done
             log "Pushing new secrets..."
@@ -72,7 +72,7 @@ function deploy {
             fi
             echo us-central1-a 118 | xargs -P1 -n2 "${0}" process-region "${CLOUD}_${ACTION}"
             log "Updating config/imagesets.yml..."
-            IMAGE_NAME="$(cat "${IMAGE_SET}/gcp_image")"
+            IMAGE_NAME="$(cat "${IMAGE_SET}/gcp.secrets")"
             yq w -i ../config/imagesets.yml "${IMAGE_SET}.gcp" "${IMAGE_NAME}"
             ;;
     esac
@@ -252,7 +252,7 @@ function aws_update {
             echo "Password:    ${PASSWORD}"
         fi
         echo "AMI:         ${IMAGE_ID}"
-    } > "${REGION}.secrets"
+    } > "aws.${REGION}.secrets"
 
     aws_delete_found
 }
@@ -362,7 +362,7 @@ function google_update {
         sleep 15
     done
 
-    echo "${GCP_PROJECT}/global/images/${UNIQUE_NAME}" > gcp_image
+    echo "${GCP_PROJECT}/global/images/${UNIQUE_NAME}" > gcp.secrets
 
     google_delete_found
 }

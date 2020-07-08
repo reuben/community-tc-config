@@ -31,13 +31,13 @@ function deploy {
 
     export CLOUD="${1}"
     if [ "${CLOUD}" != "aws" ] && [ "${CLOUD}" != "google" ]; then
-        log "provider must be 'aws' or 'google' but '${CLOUD}' was specified" >&2
+        log "Provider must be 'aws' or 'google' but '${CLOUD}' was specified" >&2
         exit 65
     fi
 
     ACTION="${2}"
     if [ "${ACTION}" != "update" ] && [ "${ACTION}" != "delete" ]; then
-        log "action must be 'delete' or 'update' but '${ACTION}' was specified" >&2
+        log "Action must be 'delete' or 'update' but '${ACTION}' was specified" >&2
         exit 66
     fi
 
@@ -53,22 +53,41 @@ function deploy {
 
     case "${CLOUD}" in
         aws) 
+            echo us-west-1 118 us-west-2 199 us-east-1 100 | xargs -P3 -n2 "${0}" process-region "${CLOUD}_${ACTION}"
             log "Fetching secrets..."
             pass git pull
-            echo us-west-1 118 us-west-2 199 us-east-1 100 | xargs -P3 -n2 "${0}" process-region "${CLOUD}_${ACTION}"
+            for REGION in us-west-1 us-west-2 us-east-1; do
+              IMAGE_ID="$(cat "${IMAGE_SET}/${REGION}.secrets" | sed -n 's/^AMI: *//p')"
+              yq w -i ../config/imagesets.yml "${IMAGE_SET}.aws.amis.${REGION}" "${IMAGE_ID}"
+              pass insert -m -f "community-tc/imagesets/${IMAGE_SET}/${REGION}" < "${IMAGE_SET}/${REGION}.secrets"
+              pass insert -m -f "community-tc/imagesets/${IMAGE_SET}/${CLOUD}.${REGION}.id_rsa" < "${IMAGE_SET}/${CLOUD}.${REGION}.id_rsa"
+            done
             log "Pushing new secrets..."
             pass git push
             ;;
         google)
             if [ "${GCP_PROJECT}" == "" ]; then
-                log "env variable GCP_PROJECT must be exported before calling this script" >&2
+                log "Environment variable GCP_PROJECT must be exported before calling this script" >&2
                 exit 67
             fi
             echo us-central1-a 118 | xargs -P1 -n2 "${0}" process-region "${CLOUD}_${ACTION}"
+            log "Updating config/imagesets.yml..."
+            IMAGE_NAME="$(cat "${IMAGE_SET}/gcp_image")"
+            yq w -i ../config/imagesets.yml "${IMAGE_SET}.gcp" "${IMAGE_NAME}"
             ;;
     esac
 
+    # Link to bootstrap script in worker type metadata, if generic-worker worker type
+    if [ "$(yq r ../config/imagesets.yml "generic-worker-win2016.workerImplementation")" == "generic-worker" ]; then
+      BOOTSTRAP_SCRIPT="${IMAGE_SET}"/bootstrap.*
+      yq w -i ../config/imagesets.yml "${IMAGE_SET}.workerConfig.genericWorker.config.workerTypeMetadata.machine-setup.script" "https://github.com/mozilla/community-tc-config/blob/${IMAGE_SET_COMMIT_SHA}/imagesets/${BOOTSTRAP_SCRIPT}"
+    fi
+
+    git add "${IMAGE_SET}"
+    git add ../config/imagesets.yml
+    git commit -m "Built new machine images for imageset ${IMAGE_SET}"
     log 'Deployment of image sets successful!'
+    log 'Be sure to push changes to community-tc-config repo'
 }
 
 ################## AWS ##################
@@ -225,8 +244,6 @@ function aws_update {
         sleep 30
     done
 
-    touch "${REGION}.${IMAGE_ID}.latest-image"
-
     {
         echo "Instance:    ${INSTANCE_ID}"
         echo "Public IP:   ${PUBLIC_IP}"
@@ -235,9 +252,7 @@ function aws_update {
             echo "Password:    ${PASSWORD}"
         fi
         echo "AMI:         ${IMAGE_ID}"
-    } | pass insert -m -f "community-tc/imagesets/${IMAGE_SET}/${REGION}"
-
-    pass insert -m -f "community-tc/imagesets/${IMAGE_SET}/${CLOUD}.${REGION}.id_rsa" < "${CLOUD}.${REGION}.id_rsa"
+    } > "${REGION}.secrets"
 
     aws_delete_found
 }
@@ -359,10 +374,16 @@ function google_update {
 if [ "${1}" == "process-region" ]; then
     # Step into directory containing image set definition.
     cd "$(dirname "${0}")/${IMAGE_SET}"
+    if [ -n "$(git status --porcelain . ../config/imagesets.yml)" ]; then
+      log "The following local changes need to be committed/stashed/discarded before running this script:" >&2
+      git status . ../../config/imagesets.yml 2>&1 | sed 's/^/    /' >&2
+      exit 68
+    fi
     REGION="${3}"
     COLOUR="${4}"
     "${2}"
     exit 0
 fi
 
+cd "$(dirname "${0}")"
 deploy "${@}"

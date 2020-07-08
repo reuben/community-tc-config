@@ -40,7 +40,11 @@ function deploy {
 
     case "${CLOUD}" in
         aws) 
+            log "Fetching secrets..."
+            pass git pull
             echo us-west-1 118 us-west-2 199 us-east-1 100 | xargs -P3 -n2 "${0}" process-region "${CLOUD}_${ACTION}"
+            log "Pushing new secrets..."
+            pass git push
             ;;
         google)
             if [ "${GCP_PROJECT}" == "" ]; then
@@ -211,11 +215,16 @@ function aws_update {
     touch "${REGION}.${IMAGE_ID}.latest-image"
 
     {
-            echo "Instance:    ${INSTANCE_ID}"
-            echo "Public IP: ${PUBLIC_IP}"
-            [ -n "${PASSWORD}" ] && echo "Password:    ${PASSWORD}"
-            echo "AMI:             ${IMAGE_ID}"
-    } > "${REGION}.secrets"
+        echo "Instance:    ${INSTANCE_ID}"
+        echo "Public IP:   ${PUBLIC_IP}"
+        if [ -n "${PASSWORD}" ]; then
+            echo "Username:    Administrator"
+            echo "Password:    ${PASSWORD}"
+        fi
+        echo "AMI:         ${IMAGE_ID}"
+    } | pass insert -m -f "community-tc/imagesets/${IMAGE_SET}/${REGION}"
+
+    pass insert -m -f "community-tc/imagesets/${IMAGE_SET}/${CLOUD}.${REGION}.id_rsa" < "${CLOUD}.${REGION}.id_rsa"
 
     aws_delete_found
 }
